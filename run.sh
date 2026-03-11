@@ -3,24 +3,28 @@ set -e
 
 # ========== 配置（按需修改）==========
 DATASET_PATH="/root/autodl-tmp/mvtec_loco_anomaly_detection"
-CATEGORIES=(breakfast_box juice_bottle pushpins screw_bag splicing_connectors)
+FEW_SHOT_CATEGORIES=(breakfast_box juice_bottle pushpins screw_bag splicing_connectors)
+FULL_CATEGORIES=(breakfast_box juice_bottle pushpins screw_bag splicing_connectors)
 
 # ========== 用法 ==========
 usage() {
-    echo "Usage: bash run.sh <mode> [--dataset PATH]"
+    echo "Usage: ./run.sh [mode] [--dataset PATH]"
     echo ""
     echo "Modes:"
-    echo "  few-shot    计算统计量 + 少样本 (4-shot) 评测"
-    echo "  full        计算 coreset + 统计量 + 全量评测"
-    echo "  clean       清理 memory_bank 中的缓存文件"
+    echo "  few-shot    仅少样本 (4-shot) 评测"
+    echo "  full        仅全量 (coreset) 评测"
+    echo "  clean       清理 memory_bank 缓存"
+    echo "  (无参数)     依次运行 few-shot + full"
     exit 1
 }
 
-[[ $# -eq 0 ]] && usage
-MODE="$1"; shift
+# 解析参数
+MODE="all"
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        few-shot|full|clean|all) MODE="$1"; shift ;;
         --dataset) DATASET_PATH="$2"; shift 2 ;;
+        -h|--help) usage ;;
         *) echo "Unknown: $1"; usage ;;
     esac
 done
@@ -28,6 +32,7 @@ done
 # ========== 少样本 (4-shot) ==========
 run_few_shot() {
     echo "===== Few-shot (4-shot) 评测 ====="
+    echo "Categories: ${FEW_SHOT_CATEGORIES[*]}"
     python compute_stats.py \
         --module_path model_ensemble_few_shot \
         --dataset_path "$DATASET_PATH"
@@ -39,8 +44,8 @@ run_few_shot() {
 # ========== 全量 (coreset) ==========
 run_full() {
     echo "===== Full (coreset) 评测 ====="
-    echo "Categories: ${CATEGORIES[*]}"
-    for cat in "${CATEGORIES[@]}"; do
+    echo "Categories: ${FULL_CATEGORIES[*]}"
+    for cat in "${FULL_CATEGORIES[@]}"; do
         echo "--- coreset: $cat ---"
         python compute_coreset.py \
             --module_path model_ensemble \
@@ -68,5 +73,6 @@ case "$MODE" in
     few-shot) run_few_shot ;;
     full)     run_full ;;
     clean)    run_clean ;;
+    all)      run_few_shot; run_full ;;
     *)        usage ;;
 esac
