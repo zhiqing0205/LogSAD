@@ -167,17 +167,6 @@ class MyModel(nn.Module):
 
         self.few_shot_inited = False
 
-    def _load_for_clip(self, paths):
-        """Load images from disk and resize directly to 448x448 for CLIP (avoids double interpolation)."""
-        if isinstance(paths, str):
-            paths = [paths]
-        images = []
-        for p in paths:
-            img = Image.open(p).convert('RGB')
-            img = TF.resize(img, [448, 448], interpolation=InterpolationMode.BILINEAR, antialias=True)
-            images.append(TF.to_tensor(img))
-        return self.transform(torch.stack(images).to(self.device))
-
 
         from dinov3.hub.backbones import load_dinov3_model
         self.model_dinov2 = load_dinov3_model('dinov3_vitl16', pretrained_weight_path='./checkpoint/dinov3_vitl16_pretrain_lvd1689m-8aa4cbdd.pth')
@@ -192,6 +181,17 @@ class MyModel(nn.Module):
 
         self.anomaly_flag = False
         self.validation = False #True #False
+
+    def _load_for_clip(self, paths):
+        """Load images from disk and resize directly to 448x448 for CLIP (avoids double interpolation)."""
+        if isinstance(paths, str):
+            paths = [paths]
+        images = []
+        for p in paths:
+            img = Image.open(p).convert('RGB')
+            img = TF.resize(img, [448, 448], interpolation=InterpolationMode.BILINEAR, antialias=True)
+            images.append(TF.to_tensor(img))
+        return self.transform(torch.stack(images).to(self.device))
 
     def set_viz(self, viz):
         self.visualization = viz

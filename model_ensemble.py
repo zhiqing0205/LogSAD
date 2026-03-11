@@ -168,17 +168,6 @@ class MyModel(nn.Module):
 
         self.few_shot_inited = False
 
-    def _load_for_clip(self, paths):
-        """Load images from disk and resize directly to 448x448 for CLIP (avoids double interpolation)."""
-        if isinstance(paths, str):
-            paths = [paths]
-        images = []
-        for p in paths:
-            img = Image.open(p).convert('RGB')
-            img = TF.resize(img, [448, 448], interpolation=InterpolationMode.BILINEAR, antialias=True)
-            images.append(TF.to_tensor(img))
-        return self.transform(torch.stack(images).to(self.device))
-
         self.save_coreset_features = False
 
 
@@ -195,6 +184,17 @@ class MyModel(nn.Module):
 
         self.anomaly_flag = False
         self.validation = False #True #False
+
+    def _load_for_clip(self, paths):
+        """Load images from disk and resize directly to 448x448 for CLIP (avoids double interpolation)."""
+        if isinstance(paths, str):
+            paths = [paths]
+        images = []
+        for p in paths:
+            img = Image.open(p).convert('RGB')
+            img = TF.resize(img, [448, 448], interpolation=InterpolationMode.BILINEAR, antialias=True)
+            images.append(TF.to_tensor(img))
+        return self.transform(torch.stack(images).to(self.device))
 
     def set_save_coreset_features(self, save_coreset_features):
         self.save_coreset_features = save_coreset_features
