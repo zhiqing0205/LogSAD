@@ -279,7 +279,7 @@ class MyModel(nn.Module):
             mid_features = mid_features.permute(0, 2, 3, 1).view(-1, self.vision_width * len(self.cluster_feature_id))
         mid_features = F.normalize(mid_features, p=2, dim=-1)
              
-        results = self.histogram(batch, mid_features, proj_patch_tokens, self.class_name, os.path.dirname(path).split('/')[-1] + "_" + os.path.basename(path).split('.')[0])
+        results = self.histogram(batch_clip, mid_features, proj_patch_tokens, self.class_name, os.path.dirname(path).split('/')[-1] + "_" + os.path.basename(path).split('.')[0])
         
         hist_score = results['score']
 
@@ -808,7 +808,7 @@ class MyModel(nn.Module):
         patch_token_hist = []
         mem_instance_masks = []
             
-        for image, cluster_feature, proj_patch_token, few_shot_path in zip(few_shot_samples.chunk(self.k_shot), cluster_features.chunk(self.k_shot), proj_patch_tokens.chunk(self.k_shot), few_shot_paths):        
+        for image, cluster_feature, proj_patch_token, few_shot_path in zip(few_shot_samples_clip.chunk(self.k_shot), cluster_features.chunk(self.k_shot), proj_patch_tokens.chunk(self.k_shot), few_shot_paths):
             # path = os.path.dirname(few_shot_path).split('/')[-1] + "_" + os.path.basename(few_shot_path).split('.')[0]
             self.anomaly_flag = False
             results = self.histogram(image, cluster_feature, proj_patch_token, class_name, "few_shot_" + os.path.basename(few_shot_path).split('.')[0])
