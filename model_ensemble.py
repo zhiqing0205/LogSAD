@@ -145,7 +145,8 @@ class MyModel(nn.Module):
 
         self.feat_size = 64
         self.ori_feat_size = 32
-        self.ori_feat_size_dino = 28  # DINOv3 patch_size=16: 448/16=28
+        self.ori_feat_size_dino = (28, 28)  # DINOv3 patch_size=16: 448/16=28
+        self.image_size = (448, 448)
 
         self.visualization = False #False # True #False
 
@@ -166,6 +167,17 @@ class MyModel(nn.Module):
         self.patch_token_hist = []
 
         self.few_shot_inited = False
+
+    def _load_for_clip(self, paths):
+        """Load images from disk and resize directly to 448x448 for CLIP (avoids double interpolation)."""
+        if isinstance(paths, str):
+            paths = [paths]
+        images = []
+        for p in paths:
+            img = Image.open(p).convert('RGB')
+            img = TF.resize(img, [448, 448], interpolation=InterpolationMode.BILINEAR, antialias=True)
+            images.append(TF.to_tensor(img))
+        return self.transform(torch.stack(images).to(self.device))
 
         self.save_coreset_features = False
 
@@ -233,8 +245,10 @@ class MyModel(nn.Module):
 
     def forward_one_sample(self, batch: torch.Tensor, mem_patch_feature_clip_coreset: torch.Tensor, mem_patch_feature_dinov2_coreset: torch.Tensor, path: str):
 
+        batch_clip = self._load_for_clip(path)
+
         with torch.no_grad():
-            image_features, patch_tokens, proj_patch_tokens = self.model_clip.encode_image(batch, self.feature_list)
+            image_features, patch_tokens, proj_patch_tokens = self.model_clip.encode_image(batch_clip, self.feature_list)
             # image_features /= image_features.norm(dim=-1, keepdim=True)
             patch_tokens = [p[:, 1:, :] for p in patch_tokens]
             patch_tokens = [p.reshape(p.shape[0]*p.shape[1], p.shape[2]) for p in patch_tokens]
@@ -249,7 +263,7 @@ class MyModel(nn.Module):
         with torch.no_grad():
             patch_tokens_dinov2 = self.model_dinov2.get_intermediate_layers(batch, n=self.feature_list_dinov2)
             patch_tokens_dinov2 = torch.cat(patch_tokens_dinov2, dim=-1)  # (1, 28*28, 1024x4)
-            patch_tokens_dinov2 = patch_tokens_dinov2.view(1, self.ori_feat_size_dino, self.ori_feat_size_dino, -1).permute(0, 3, 1, 2)
+            patch_tokens_dinov2 = patch_tokens_dinov2.view(1, *self.ori_feat_size_dino, -1).permute(0, 3, 1, 2)
             patch_tokens_dinov2 = F.interpolate(patch_tokens_dinov2, size=(self.feat_size, self.feat_size), mode=self.inter_mode, align_corners=self.align_corners)
             patch_tokens_dinov2 = patch_tokens_dinov2.permute(0, 2, 3, 1).view(-1, self.vision_width_dinov2 * len(self.feature_list_dinov2))
             patch_tokens_dinov2 = F.normalize(patch_tokens_dinov2, p=2, dim=-1) # (1x64x64, 1024x4)
@@ -766,10 +780,10 @@ class MyModel(nn.Module):
 
 
     def process_k_shot(self, class_name, few_shot_samples, few_shot_paths):
-        few_shot_samples = F.interpolate(few_shot_samples, size=(448, 448), mode=self.inter_mode, align_corners=self.align_corners, antialias=self.antialias)
+        few_shot_samples_clip = self._load_for_clip(few_shot_paths)
 
         with torch.no_grad():
-            image_features, patch_tokens, proj_patch_tokens = self.model_clip.encode_image(few_shot_samples, self.feature_list)
+            image_features, patch_tokens, proj_patch_tokens = self.model_clip.encode_image(few_shot_samples_clip, self.feature_list)
             patch_tokens = [p[:, 1:, :] for p in patch_tokens]
             patch_tokens = [p.reshape(p.shape[0]*p.shape[1], p.shape[2]) for p in patch_tokens]
 
@@ -781,9 +795,9 @@ class MyModel(nn.Module):
             patch_tokens_clip = F.normalize(patch_tokens_clip, p=2, dim=-1)  # (bsx64x64, 1024x4)
 
         with torch.no_grad():
-            patch_tokens_dinov2 = self.model_dinov2.get_intermediate_layers(few_shot_samples, n=self.feature_list_dinov2)  # 4 x [bs, 28*28, 1024]
-            patch_tokens_dinov2 = torch.cat(patch_tokens_dinov2, dim=-1)  # (bs, 28*28, 1024x4)
-            patch_tokens_dinov2 = patch_tokens_dinov2.view(self.k_shot, self.ori_feat_size_dino, self.ori_feat_size_dino, -1).permute(0, 3, 1, 2)
+            patch_tokens_dinov2 = self.model_dinov2.get_intermediate_layers(few_shot_samples, n=self.feature_list_dinov2)  # 4 x [bs, H*W, 1024]
+            patch_tokens_dinov2 = torch.cat(patch_tokens_dinov2, dim=-1)  # (bs, H*W, 1024x4)
+            patch_tokens_dinov2 = patch_tokens_dinov2.view(self.k_shot, *self.ori_feat_size_dino, -1).permute(0, 3, 1, 2)
             patch_tokens_dinov2 = F.interpolate(patch_tokens_dinov2, size=(self.feat_size, self.feat_size), mode=self.inter_mode, align_corners=self.align_corners)
             patch_tokens_dinov2 = patch_tokens_dinov2.permute(0, 2, 3, 1).view(-1, self.vision_width_dinov2 * len(self.feature_list_dinov2))
             patch_tokens_dinov2 = F.normalize(patch_tokens_dinov2, p=2, dim=-1)  # (bsx64x64, 1024x4)
@@ -902,6 +916,11 @@ class MyModel(nn.Module):
         class_name = data.get("dataset_category")
         few_shot_paths = data.get("few_shot_samples_path")
         self.class_name = class_name
+
+        image_size = data.get("image_size", (448, 448))
+        self.image_size = image_size
+        H, W = image_size
+        self.ori_feat_size_dino = (H // 16, W // 16)
 
         print(few_shot_samples.shape)
 

@@ -24,6 +24,15 @@ from anomalib.data import MVTecLoco
 FEW_SHOT_SAMPLES = [0, 1, 2, 3]
 CATEGORIES = ["breakfast_box", "juice_bottle", "pushpins", "screw_bag", "splicing_connectors"]
 
+# Per-category image sizes (H, W) preserving original aspect ratios.
+CATEGORY_IMAGE_SIZES = {
+    "breakfast_box":        (448, 560),
+    "juice_bottle":         (672, 336),
+    "pushpins":             (320, 544),
+    "screw_bag":            (352, 512),
+    "splicing_connectors":  (336, 672),
+}
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -69,7 +78,8 @@ def run(module_path, class_name, weights_path, dataset_path):
         model = load_model(module_path, class_name, weights_path)
         model.to(device)
 
-        datamodule = MVTecLoco(root=dataset_path, eval_batch_size=1, image_size=(448, 448), category=category)
+        image_size = CATEGORY_IMAGE_SIZES[category]
+        datamodule = MVTecLoco(root=dataset_path, eval_batch_size=1, image_size=image_size, category=category)
         datamodule.setup()
 
         model.set_viz(False)
@@ -80,6 +90,7 @@ def run(module_path, class_name, weights_path, dataset_path):
             "few_shot_samples": torch.stack([datamodule.train_data[idx]["image"] for idx in FEW_SHOT_SAMPLES]).to(device),
             "few_shot_samples_path": [datamodule.train_data[idx]["image_path"] for idx in FEW_SHOT_SAMPLES],
             "dataset_category": category,
+            "image_size": image_size,
         }
         model.setup(setup_data)
 

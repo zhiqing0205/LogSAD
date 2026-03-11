@@ -18,6 +18,16 @@ from anomalib.metrics.auroc import AUROC
 CATEGORIES = ["breakfast_box", "juice_bottle", "pushpins", "screw_bag", "splicing_connectors"]
 FEW_SHOT_SAMPLES = [0, 1, 2, 3]
 
+# Per-category image sizes (H, W) preserving original aspect ratios.
+# CLIP always resized to 448x448; only DINOv3 (patch=16) needs divisibility by 16.
+CATEGORY_IMAGE_SIZES = {
+    "breakfast_box":        (448, 560),   # orig 1600x1280 (5:4)   ratio=1.250 exact
+    "juice_bottle":         (672, 336),   # orig 800x1600  (1:2)   ratio=0.500 exact
+    "pushpins":             (320, 544),   # orig 1700x1000 (17:10) ratio=1.700 exact
+    "screw_bag":            (352, 512),   # orig 1600x1100 (16:11) ratio=1.455 exact
+    "splicing_connectors":  (336, 672),   # orig 1700x850  (2:1)   ratio=2.000 exact
+}
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
@@ -43,7 +53,8 @@ def evaluate_category(module_path, class_name, weights_path, dataset_path, categ
     model = load_model(module_path, class_name, weights_path)
     model.to(device)
 
-    datamodule = MVTecLoco(root=dataset_path, eval_batch_size=1, image_size=(448, 448), category=category)
+    image_size = CATEGORY_IMAGE_SIZES[category]
+    datamodule = MVTecLoco(root=dataset_path, eval_batch_size=1, image_size=image_size, category=category)
     datamodule.setup()
 
     model.set_viz(viz)
@@ -59,6 +70,7 @@ def evaluate_category(module_path, class_name, weights_path, dataset_path, categ
         "few_shot_samples": torch.stack([datamodule.train_data[idx]["image"] for idx in FEW_SHOT_SAMPLES]).to(device),
         "few_shot_samples_path": [datamodule.train_data[idx]["image_path"] for idx in FEW_SHOT_SAMPLES],
         "dataset_category": category,
+        "image_size": image_size,
     }
     model.setup(setup_data)
 
@@ -107,7 +119,8 @@ def generate_markdown(all_results, module_path):
     lines.append("- DINO Backbone: DINOv3 ViT-L/16")
     lines.append("- CLIP Backbone: ViT-L-14 (DataComp.XL)")
     lines.append("- SAM Backbone: ViT-H")
-    lines.append("- Image Size: 448x448")
+    lines.append("- Image Size: per-category rectangular (see table)")
+    lines.append("  - " + ", ".join(f"{c}: {CATEGORY_IMAGE_SIZES[c][0]}x{CATEGORY_IMAGE_SIZES[c][1]}" for c in CATEGORIES))
     lines.append(f"- Date: {timestamp}")
     lines.append("")
     lines.append("## Results\n")

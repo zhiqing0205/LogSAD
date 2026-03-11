@@ -21,6 +21,15 @@ import numpy as np
 
 # FEW_SHOT_SAMPLES = [0, 1, 2, 3]
 
+# Per-category image sizes (H, W) preserving original aspect ratios.
+CATEGORY_IMAGE_SIZES = {
+    "breakfast_box":        (448, 560),
+    "juice_bottle":         (672, 336),
+    "pushpins":             (320, 544),
+    "screw_bag":            (352, 512),
+    "splicing_connectors":  (336, 672),
+}
+
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments.
 
@@ -76,7 +85,8 @@ def run(module_path: str, class_name: str, weights_path: str, dataset_path: str,
     model.to(device)
 
     # Create the dataset
-    datamodule = MVTecLoco(root=dataset_path, eval_batch_size=1, image_size=(448, 448), category=category)
+    image_size = CATEGORY_IMAGE_SIZES[category]
+    datamodule = MVTecLoco(root=dataset_path, eval_batch_size=1, image_size=image_size, category=category)
     datamodule.setup()
 
     model.set_viz(viz)
@@ -90,6 +100,7 @@ def run(module_path: str, class_name: str, weights_path: str, dataset_path: str,
         "few_shot_samples": torch.stack([datamodule.train_data[idx]["image"] for idx in FEW_SHOT_SAMPLES]).to(device),
         "few_shot_samples_path": [datamodule.train_data[idx]["image_path"] for idx in FEW_SHOT_SAMPLES],
         "dataset_category": category,
+        "image_size": image_size,
     }
     model.setup(setup_data)
     
