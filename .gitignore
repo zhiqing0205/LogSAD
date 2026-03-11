@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+dist/
+build/
+
+# Checkpoints and model weights
+checkpoint/
+*.pt
+*.pth
+*.ckpt
+
+# Memory bank data
+memory_bank/*.pt
+memory_bank/*.pkl
+
+# Results
+results/
+
+# Environment
+.env
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

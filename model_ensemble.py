@@ -145,6 +145,7 @@ class MyModel(nn.Module):
 
         self.feat_size = 64
         self.ori_feat_size = 32
+        self.ori_feat_size_dino = 28  # DINOv3 patch_size=16: 448/16=28
 
         self.visualization = False #False # True #False
 
@@ -169,11 +170,11 @@ class MyModel(nn.Module):
         self.save_coreset_features = False
 
 
-        from dinov2.dinov2.hub.backbones import dinov2_vitl14
-        self.model_dinov2 = dinov2_vitl14()
+        from dinov3.hub.backbones import load_dinov3_model
+        self.model_dinov2 = load_dinov3_model('dinov3_vitl16', pretrained_weight_path='./checkpoint/dinov3_vitl16_pretrain_lvd1689m-8aa4cbdd.pth')
         self.model_dinov2.to(self.device)
         self.model_dinov2.eval()
-        self.feature_list_dinov2 = [6, 12, 18, 24]
+        self.feature_list_dinov2 = [5, 11, 17, 23]  # 0-based indexing for DINOv3
         self.vision_width_dinov2 = 1024
 
         self.stats = pickle.load(open("memory_bank/statistic_scores_model_ensemble_val.pkl", "rb"))
@@ -246,9 +247,9 @@ class MyModel(nn.Module):
             patch_tokens_clip = F.normalize(patch_tokens_clip, p=2, dim=-1) # (1x64x64, 1024x4)
         
         with torch.no_grad():
-            patch_tokens_dinov2 = self.model_dinov2.forward_features(batch, out_layer_list=self.feature_list)
-            patch_tokens_dinov2 = torch.cat(patch_tokens_dinov2, dim=-1)  # (1, 1024, 1024x4)
-            patch_tokens_dinov2 = patch_tokens_dinov2.view(1, self.ori_feat_size, self.ori_feat_size, -1).permute(0, 3, 1, 2)
+            patch_tokens_dinov2 = self.model_dinov2.get_intermediate_layers(batch, n=self.feature_list_dinov2)
+            patch_tokens_dinov2 = torch.cat(patch_tokens_dinov2, dim=-1)  # (1, 28*28, 1024x4)
+            patch_tokens_dinov2 = patch_tokens_dinov2.view(1, self.ori_feat_size_dino, self.ori_feat_size_dino, -1).permute(0, 3, 1, 2)
             patch_tokens_dinov2 = F.interpolate(patch_tokens_dinov2, size=(self.feat_size, self.feat_size), mode=self.inter_mode, align_corners=self.align_corners)
             patch_tokens_dinov2 = patch_tokens_dinov2.permute(0, 2, 3, 1).view(-1, self.vision_width_dinov2 * len(self.feature_list_dinov2))
             patch_tokens_dinov2 = F.normalize(patch_tokens_dinov2, p=2, dim=-1) # (1x64x64, 1024x4)
@@ -393,7 +394,7 @@ class MyModel(nn.Module):
         patch_mask = patch_mask.view(self.feat_size, self.feat_size).cpu().numpy()
 
         sorted_masks = sorted(masks, key=(lambda x: x['area']), reverse=True)
-        sam_mask = plot_results_only(sorted_masks).astype(np.int)
+        sam_mask = plot_results_only(sorted_masks).astype(int)
         
         resized_mask = cv2.resize(kmeans_mask, (width, height), interpolation = cv2.INTER_NEAREST)
         merge_sam = merge_segmentations(sam_mask, resized_mask, background_class=self.classes-1)
@@ -432,7 +433,7 @@ class MyModel(nn.Module):
                 instance_mask = (labels == i).astype(np.uint8)
                 instance_mask = cv2.resize(instance_mask, (self.feat_size, self.feat_size), interpolation = cv2.INTER_NEAREST)
                 if instance_mask.any():
-                    instance_masks.append(instance_mask.astype(np.bool).reshape(-1))
+                    instance_masks.append(instance_mask.astype(bool).reshape(-1))
 
             if self.few_shot_inited and pushpins_count != self.pushpins_count and self.anomaly_flag is False:
                 self.anomaly_flag = True
@@ -485,8 +486,8 @@ class MyModel(nn.Module):
                 print('number of connected component in splicing_connectors: {}, but the default connected component is 1.'.format(count))
                 self.anomaly_flag = True
 
-            merge_sam[~(binary.astype(np.bool))] = self.query_obj.shape[0] - 1 # remove noise
-            patch_merge_sam[~(binary.astype(np.bool))] = self.patch_query_obj.shape[0] - 1 # remove patch noise
+            merge_sam[~(binary.astype(bool))] = self.query_obj.shape[0] - 1 # remove noise
+            patch_merge_sam[~(binary.astype(bool))] = self.patch_query_obj.shape[0] - 1 # remove patch noise
 
             # erode the cable and divide into left and right parts
             kernel = np.ones((23, 23), dtype=np.uint8)
@@ -525,14 +526,14 @@ class MyModel(nn.Module):
                     instance_mask = temp_mask.astype(np.uint8)
                     instance_mask = cv2.resize(instance_mask, (self.feat_size, self.feat_size), interpolation = cv2.INTER_NEAREST)
                     if instance_mask.any():
-                        instance_masks.append(instance_mask.astype(np.bool).reshape(-1))
+                        instance_masks.append(instance_mask.astype(bool).reshape(-1))
 
             binary_clamps = cv2.resize(binary_clamps, (self.feat_size, self.feat_size), interpolation = cv2.INTER_NEAREST)
 
             binary_connector = cv2.resize(binary, (self.feat_size, self.feat_size), interpolation = cv2.INTER_NEAREST)
             
             query_cable_color = encode_obj_text(self.model_clip, self.splicing_connectors_cable_color_query_words_dict, self.tokenizer, self.device)
-            cable_feature = proj_patch_token[binary_cable.astype(np.bool).reshape(-1), :].mean(0, keepdim=True)
+            cable_feature = proj_patch_token[binary_cable.astype(bool).reshape(-1), :].mean(0, keepdim=True)
             idx_color = (cable_feature @ query_cable_color.T).argmax(-1).squeeze(0).item()
             foreground_pixel_count = np.sum(erode_binary) / self.splicing_connectors_count[idx_color]
 
@@ -581,11 +582,11 @@ class MyModel(nn.Module):
             # todo    mismatch cable link  
             binary_foreground = binary.astype(np.uint8) # only 1 instance, so additionally seperate cable and clamps
             if binary_connector.any():
-                instance_masks.append(binary_connector.astype(np.bool).reshape(-1))
+                instance_masks.append(binary_connector.astype(bool).reshape(-1))
             if binary_clamps.any():
-                instance_masks.append(binary_clamps.astype(np.bool).reshape(-1))
+                instance_masks.append(binary_clamps.astype(bool).reshape(-1))
             if binary_cable.any():
-                instance_masks.append(binary_cable.astype(np.bool).reshape(-1))      
+                instance_masks.append(binary_cable.astype(bool).reshape(-1))      
 
             if len(instance_masks) != 0:
                 instance_masks = np.stack(instance_masks) #[N, 64x64]
@@ -619,7 +620,7 @@ class MyModel(nn.Module):
             binary_screw = np.isin(kmeans_mask, self.foreground_label_idx[self.class_name])
             patch_mask[~binary_screw] = self.patch_query_obj.shape[0] - 1 # remove patch noise
             resized_binary_screw = cv2.resize(binary_screw.astype(np.uint8), (patch_merge_sam.shape[1], patch_merge_sam.shape[0]), interpolation = cv2.INTER_NEAREST)
-            patch_merge_sam[~(resized_binary_screw.astype(np.bool))] = self.patch_query_obj.shape[0] - 1 # remove patch noise
+            patch_merge_sam[~(resized_binary_screw.astype(bool))] = self.patch_query_obj.shape[0] - 1 # remove patch noise
 
             clip_patch_hist = np.bincount(patch_mask.reshape(-1), minlength=self.patch_query_obj.shape[0])[:-1]
             clip_patch_hist = clip_patch_hist / np.linalg.norm(clip_patch_hist)
@@ -635,7 +636,7 @@ class MyModel(nn.Module):
                     instance_mask = (labels == i).astype(np.uint8)
                     instance_mask = cv2.resize(instance_mask, (self.feat_size, self.feat_size), interpolation = cv2.INTER_NEAREST)
                     if instance_mask.any():
-                        instance_masks.append(instance_mask.astype(np.bool).reshape(-1))
+                        instance_masks.append(instance_mask.astype(bool).reshape(-1))
             
             if len(instance_masks) != 0:
                 instance_masks = np.stack(instance_masks) #[N, 64x64]
@@ -678,7 +679,7 @@ class MyModel(nn.Module):
                 instance_mask = (labels == i).astype(np.uint8)
                 instance_mask = cv2.resize(instance_mask, (self.feat_size, self.feat_size), interpolation = cv2.INTER_NEAREST)
                 if instance_mask.any():
-                    instance_masks.append(instance_mask.astype(np.bool).reshape(-1))
+                    instance_masks.append(instance_mask.astype(bool).reshape(-1))
 
             
             if len(instance_masks) != 0:
@@ -743,7 +744,7 @@ class MyModel(nn.Module):
                 instance_mask = (labels == i).astype(np.uint8)
                 instance_mask = cv2.resize(instance_mask, (self.feat_size, self.feat_size), interpolation = cv2.INTER_NEAREST)
                 if instance_mask.any():
-                    instance_masks.append(instance_mask.astype(np.bool).reshape(-1))
+                    instance_masks.append(instance_mask.astype(bool).reshape(-1))
             
             if len(instance_masks) != 0:
                 instance_masks = np.stack(instance_masks) #[N, 64x64]
@@ -780,9 +781,9 @@ class MyModel(nn.Module):
             patch_tokens_clip = F.normalize(patch_tokens_clip, p=2, dim=-1)  # (bsx64x64, 1024x4)
 
         with torch.no_grad():
-            patch_tokens_dinov2 = self.model_dinov2.forward_features(few_shot_samples, out_layer_list=self.feature_list_dinov2)  # 4 x [bs, 32x32, 1024]
-            patch_tokens_dinov2 = torch.cat(patch_tokens_dinov2, dim=-1)  # (bs, 1024, 1024x4)
-            patch_tokens_dinov2 = patch_tokens_dinov2.view(self.k_shot, self.ori_feat_size, self.ori_feat_size, -1).permute(0, 3, 1, 2)
+            patch_tokens_dinov2 = self.model_dinov2.get_intermediate_layers(few_shot_samples, n=self.feature_list_dinov2)  # 4 x [bs, 28*28, 1024]
+            patch_tokens_dinov2 = torch.cat(patch_tokens_dinov2, dim=-1)  # (bs, 28*28, 1024x4)
+            patch_tokens_dinov2 = patch_tokens_dinov2.view(self.k_shot, self.ori_feat_size_dino, self.ori_feat_size_dino, -1).permute(0, 3, 1, 2)
             patch_tokens_dinov2 = F.interpolate(patch_tokens_dinov2, size=(self.feat_size, self.feat_size), mode=self.inter_mode, align_corners=self.align_corners)
             patch_tokens_dinov2 = patch_tokens_dinov2.permute(0, 2, 3, 1).view(-1, self.vision_width_dinov2 * len(self.feature_list_dinov2))
             patch_tokens_dinov2 = F.normalize(patch_tokens_dinov2, p=2, dim=-1)  # (bsx64x64, 1024x4)
@@ -923,7 +924,7 @@ class MyModel(nn.Module):
             torch.save(self.mem_patch_feature_clip_coreset, 'memory_bank/mem_patch_feature_clip_{}.pt'.format(self.class_name))
 
             self.mem_patch_feature_dinov2_coreset = torch.cat(self.mem_patch_feature_dinov2_coreset, dim=0)
-            torch.save(self.mem_patch_feature_dinov2_coreset, 'memory_bank/mem_patch_feature_dinov2_{}.pt'.format(self.class_name))
+            torch.save(self.mem_patch_feature_dinov2_coreset, 'memory_bank/mem_patch_feature_dinov3_{}.pt'.format(self.class_name))
 
             print(self.mem_patch_feature_dinov2_coreset.shape, self.mem_patch_feature_clip_coreset.shape)
 
@@ -937,7 +938,7 @@ class MyModel(nn.Module):
             self.process(class_name, few_shot_samples[0 : self.k_shot], few_shot_paths[0 : self.k_shot])
 
             self.mem_patch_feature_clip_coreset = torch.load('memory_bank/mem_patch_feature_clip_{}.pt'.format(self.class_name))
-            self.mem_patch_feature_dinov2_coreset = torch.load('memory_bank/mem_patch_feature_dinov2_{}.pt'.format(self.class_name))
+            self.mem_patch_feature_dinov2_coreset = torch.load('memory_bank/mem_patch_feature_dinov3_{}.pt'.format(self.class_name))
             self.mem_instance_features_multi_stage = torch.load('memory_bank/mem_instance_features_multi_stage_{}.pt'.format(self.class_name))
 
 

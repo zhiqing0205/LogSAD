@@ -162,7 +162,7 @@ def make_mvtec_loco_dataset(
         )
 
         if not all(
-            next(iter(mask_stems)) == image_stem
+            (not mask_stems) or next(iter(mask_stems)) == image_stem
             for image_stem, mask_stems in zip(image_stems, mask_parent_stems, strict=True)
         ):
             error_message = (
