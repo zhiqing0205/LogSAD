@@ -92,7 +92,10 @@ class F1Max(Metric):
 
         precision, recall, thresholds = self.precision_recall_curve.compute()
         f1_score = (2 * precision * recall) / (precision + recall + 1e-10)
-        self.threshold = thresholds[torch.argmax(f1_score)]
+        if thresholds.ndim == 0:
+            self.threshold = thresholds
+        else:
+            self.threshold = thresholds[torch.argmax(f1_score[:len(thresholds)])]
         return torch.max(f1_score)
 
     def reset(self) -> None:
