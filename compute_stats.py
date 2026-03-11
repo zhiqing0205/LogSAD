@@ -81,6 +81,8 @@ def run(module_path, class_name, weights_path, dataset_path):
         image_size = CATEGORY_IMAGE_SIZES[category]
         datamodule = MVTecLoco(root=dataset_path, eval_batch_size=1, image_size=image_size, category=category)
         datamodule.setup()
+        datamodule_clip = MVTecLoco(root=dataset_path, eval_batch_size=1, image_size=(448, 448), category=category)
+        datamodule_clip.setup()
 
         model.set_viz(False)
         model.set_val(True)  # validation mode: forward returns raw scores without standardization
@@ -88,6 +90,7 @@ def run(module_path, class_name, weights_path, dataset_path):
         # Setup with few-shot samples
         setup_data = {
             "few_shot_samples": torch.stack([datamodule.train_data[idx]["image"] for idx in FEW_SHOT_SAMPLES]).to(device),
+            "few_shot_samples_clip": torch.stack([datamodule_clip.train_data[idx]["image"] for idx in FEW_SHOT_SAMPLES]).to(device),
             "few_shot_samples_path": [datamodule.train_data[idx]["image_path"] for idx in FEW_SHOT_SAMPLES],
             "dataset_category": category,
             "image_size": image_size,
@@ -99,9 +102,9 @@ def run(module_path, class_name, weights_path, dataset_path):
         structural_scores = []
         instance_hungarian_match_scores = []
 
-        for data in datamodule.val_dataloader():
+        for data, data_clip in zip(datamodule.val_dataloader(), datamodule_clip.val_dataloader()):
             with torch.no_grad():
-                output = model(data["image"].to(device), data["image_path"])
+                output = model(data["image"].to(device), data_clip["image"].to(device), data["image_path"])
 
             hist_scores.append(output["hist_score"].item())
             structural_scores.append(output["structural_score"].item())

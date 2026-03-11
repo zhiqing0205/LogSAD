@@ -182,24 +182,13 @@ class MyModel(nn.Module):
         self.anomaly_flag = False
         self.validation = False #True #False
 
-    def _load_for_clip(self, paths):
-        """Load images from disk and resize directly to 448x448 for CLIP (avoids double interpolation)."""
-        if isinstance(paths, str):
-            paths = [paths]
-        images = []
-        for p in paths:
-            img = Image.open(p).convert('RGB')
-            img = TF.resize(img, [448, 448], interpolation=InterpolationMode.BILINEAR, antialias=True)
-            images.append(TF.to_tensor(img))
-        return self.transform(torch.stack(images).to(self.device))
-
     def set_viz(self, viz):
         self.visualization = viz
 
     def set_val(self, val):
         self.validation = val
 
-    def forward(self, batch: torch.Tensor, batch_path: list) -> dict[str, torch.Tensor]:
+    def forward(self, batch: torch.Tensor, batch_clip: torch.Tensor, batch_path: list) -> dict[str, torch.Tensor]:
         """Transform the input batch and pass it through the model.
 
         This model returns a dictionary with the following keys
@@ -208,7 +197,8 @@ class MyModel(nn.Module):
         """
         self.anomaly_flag = False
         batch = self.transform(batch).to(self.device)
-        results = self.forward_one_sample(batch, self.mem_patch_feature_clip_coreset, self.mem_patch_feature_dinov2_coreset, batch_path[0])
+        batch_clip = self.transform(batch_clip).to(self.device)
+        results = self.forward_one_sample(batch, batch_clip, self.mem_patch_feature_clip_coreset, self.mem_patch_feature_dinov2_coreset, batch_path[0])
 
         hist_score = results['hist_score']
         structural_score = results['structural_score']
@@ -236,9 +226,7 @@ class MyModel(nn.Module):
         return {"pred_score": torch.tensor(pred_score), "anomaly_map": torch.tensor(anomaly_map_structural), "hist_score": torch.tensor(hist_score), "structural_score": torch.tensor(structural_score), "instance_hungarian_match_score": torch.tensor(instance_hungarian_match_score)}
     
 
-    def forward_one_sample(self, batch: torch.Tensor, mem_patch_feature_clip_coreset: torch.Tensor, mem_patch_feature_dinov2_coreset: torch.Tensor, path: str):
-
-        batch_clip = self._load_for_clip(path)
+    def forward_one_sample(self, batch: torch.Tensor, batch_clip: torch.Tensor, mem_patch_feature_clip_coreset: torch.Tensor, mem_patch_feature_dinov2_coreset: torch.Tensor, path: str):
 
         with torch.no_grad():
             image_features, patch_tokens, proj_patch_tokens = self.model_clip.encode_image(batch_clip, self.feature_list)
@@ -756,8 +744,7 @@ class MyModel(nn.Module):
         return {"score": score, "instance_masks": instance_masks}
 
 
-    def process_k_shot(self, class_name, few_shot_samples, few_shot_paths):
-        few_shot_samples_clip = self._load_for_clip(few_shot_paths)
+    def process_k_shot(self, class_name, few_shot_samples, few_shot_samples_clip, few_shot_paths):
 
         with torch.no_grad():
             image_features, patch_tokens, proj_patch_tokens = self.model_clip.encode_image(few_shot_samples_clip, self.feature_list)
@@ -853,9 +840,10 @@ class MyModel(nn.Module):
 
     
     
-    def process(self, class_name: str, few_shot_samples: list[torch.Tensor], few_shot_paths: list[str]):
+    def process(self, class_name: str, few_shot_samples: list[torch.Tensor], few_shot_samples_clip: list[torch.Tensor], few_shot_paths: list[str]):
         few_shot_samples = self.transform(few_shot_samples).to(self.device)
-        scores, self.mem_patch_feature_clip_coreset, self.mem_patch_feature_dinov2_coreset = self.process_k_shot(class_name, few_shot_samples, few_shot_paths)
+        few_shot_samples_clip = self.transform(few_shot_samples_clip).to(self.device)
+        scores, self.mem_patch_feature_clip_coreset, self.mem_patch_feature_dinov2_coreset = self.process_k_shot(class_name, few_shot_samples, few_shot_samples_clip, few_shot_paths)
 
     def setup(self, data: dict) -> None:
         """Setup the few-shot samples for the model.
@@ -865,6 +853,7 @@ class MyModel(nn.Module):
         the organizing committee if if your model requires any additional dataset-related information at setup-time.
         """
         few_shot_samples = data.get("few_shot_samples")
+        few_shot_samples_clip = data.get("few_shot_samples_clip")
         class_name = data.get("dataset_category")
         few_shot_paths = data.get("few_shot_samples_path")
         self.class_name = class_name
@@ -875,7 +864,7 @@ class MyModel(nn.Module):
         self.ori_feat_size_dino = (H // 16, W // 16)
 
         self.k_shot = few_shot_samples.size(0)
-        self.process(class_name, few_shot_samples, few_shot_paths)
+        self.process(class_name, few_shot_samples, few_shot_samples_clip, few_shot_paths)
         self.few_shot_inited = True
         
 

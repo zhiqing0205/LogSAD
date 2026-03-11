@@ -88,16 +88,19 @@ def run(module_path: str, class_name: str, weights_path: str, dataset_path: str,
     image_size = CATEGORY_IMAGE_SIZES[category]
     datamodule = MVTecLoco(root=dataset_path, eval_batch_size=1, image_size=image_size, category=category)
     datamodule.setup()
+    datamodule_clip = MVTecLoco(root=dataset_path, eval_batch_size=1, image_size=(448, 448), category=category)
+    datamodule_clip.setup()
 
     model.set_viz(viz)
     model.set_save_coreset_features(True)
-    
+
 
     FEW_SHOT_SAMPLES = range(len(datamodule.train_data)) # traverse all dataset to build coreset
-    
+
     # pass few-shot images and dataset category to model
     setup_data = {
         "few_shot_samples": torch.stack([datamodule.train_data[idx]["image"] for idx in FEW_SHOT_SAMPLES]).to(device),
+        "few_shot_samples_clip": torch.stack([datamodule_clip.train_data[idx]["image"] for idx in FEW_SHOT_SAMPLES]).to(device),
         "few_shot_samples_path": [datamodule.train_data[idx]["image_path"] for idx in FEW_SHOT_SAMPLES],
         "dataset_category": category,
         "image_size": image_size,

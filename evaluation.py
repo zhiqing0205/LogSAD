@@ -89,6 +89,8 @@ def run(module_path: str, class_name: str, weights_path: str, dataset_path: str,
     image_size = CATEGORY_IMAGE_SIZES[category]
     datamodule = MVTecLoco(root=dataset_path, eval_batch_size=1, image_size=image_size, category=category)
     datamodule.setup()
+    datamodule_clip = MVTecLoco(root=dataset_path, eval_batch_size=1, image_size=(448, 448), category=category)
+    datamodule_clip.setup()
 
     model.set_viz(viz)
 
@@ -105,12 +107,13 @@ def run(module_path: str, class_name: str, weights_path: str, dataset_path: str,
 
     image_metric_auroc_logical = AUROC()
     image_metric_auroc_structure = AUROC()
-    
+
 
     #
     # pass few-shot images and dataset category to model
     setup_data = {
         "few_shot_samples": torch.stack([datamodule.train_data[idx]["image"] for idx in FEW_SHOT_SAMPLES]).to(device),
+        "few_shot_samples_clip": torch.stack([datamodule_clip.train_data[idx]["image"] for idx in FEW_SHOT_SAMPLES]).to(device),
         "few_shot_samples_path": [datamodule.train_data[idx]["image_path"] for idx in FEW_SHOT_SAMPLES],
         "dataset_category": category,
         "image_size": image_size,
@@ -118,10 +121,10 @@ def run(module_path: str, class_name: str, weights_path: str, dataset_path: str,
     model.setup(setup_data)
 
     # Loop over the test set and compute the metrics
-    for data in datamodule.test_dataloader():
+    for data, data_clip in zip(datamodule.test_dataloader(), datamodule_clip.test_dataloader()):
         with torch.no_grad():
             image_path = data['image_path']
-            output = model(data["image"].to(device), data['image_path'])
+            output = model(data["image"].to(device), data_clip["image"].to(device), data['image_path'])
 
         image_metric.update(output["pred_score"].cpu(), data["label"])
         image_metric_auroc.update(output["pred_score"].cpu(), data["label"])
