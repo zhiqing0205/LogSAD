@@ -2,7 +2,7 @@
 set -e
 
 # ========== 配置（按需修改）==========
-DATASET_PATH="/root/autodl-tmp/mvtec_loco_anomaly_detection"
+DATASET_PATH="/root/data/datasets/mvtec_loco_anomaly_detection"
 FEW_SHOT_CATEGORIES=(breakfast_box juice_bottle pushpins screw_bag splicing_connectors)
 FULL_CATEGORIES=(breakfast_box juice_bottle pushpins screw_bag splicing_connectors)
 
