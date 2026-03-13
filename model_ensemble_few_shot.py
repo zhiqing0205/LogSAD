@@ -169,11 +169,11 @@ class MyModel(nn.Module):
 
 
         from dinov3.hub.backbones import load_dinov3_model
-        self.model_dinov2 = load_dinov3_model('dinov3_vitl16', pretrained_weight_path='./checkpoint/dinov3_vitl16_pretrain_lvd1689m-8aa4cbdd.pth')
+        self.model_dinov2 = load_dinov3_model('dinov3_vith16plus', pretrained_weight_path='./checkpoint/dinov3_vith16plus_pretrain_lvd1689m-7c1da9a5.pth')
         self.model_dinov2.to(self.device)
         self.model_dinov2.eval()
-        self.feature_list_dinov2 = [5, 11, 17, 23]  # 0-based indexing for DINOv3
-        self.vision_width_dinov2 = 1024
+        self.feature_list_dinov2 = [7, 15, 23, 31]  # 0-based indexing for DINOv3 ViT-H (depth=32)
+        self.vision_width_dinov2 = 1280
 
         self.stats = pickle.load(open("memory_bank/statistic_scores_model_ensemble_few_shot_val.pkl", "rb"))
 
@@ -241,14 +241,17 @@ class MyModel(nn.Module):
             patch_tokens_clip = patch_tokens_clip.permute(0, 2, 3, 1).view(-1, self.vision_width * len(self.feature_list))
             patch_tokens_clip = F.normalize(patch_tokens_clip, p=2, dim=-1) # (1x64x64, 1024x4)
         
-        with torch.no_grad():
-            patch_tokens_dinov2 = self.model_dinov2.get_intermediate_layers(batch, n=self.feature_list_dinov2)
-            patch_tokens_dinov2 = torch.cat(patch_tokens_dinov2, dim=-1)  # (1, 28*28, 1024x4)
-            patch_tokens_dinov2 = patch_tokens_dinov2.view(1, *self.ori_feat_size_dino, -1).permute(0, 3, 1, 2)
-            patch_tokens_dinov2 = F.interpolate(patch_tokens_dinov2, size=(self.feat_size, self.feat_size), mode=self.inter_mode, align_corners=self.align_corners)
-            patch_tokens_dinov2 = patch_tokens_dinov2.permute(0, 2, 3, 1).view(-1, self.vision_width_dinov2 * len(self.feature_list_dinov2))
-            patch_tokens_dinov2 = F.normalize(patch_tokens_dinov2, p=2, dim=-1) # (1x64x64, 1024x4)
-        
+        # DINO encoding only needed for DINO patchcore categories
+        patch_tokens_dinov2 = None
+        if self.class_name in ['splicing_connectors', 'breakfast_box', 'juice_bottle']:
+            with torch.no_grad():
+                patch_tokens_dinov2 = self.model_dinov2.get_intermediate_layers(batch, n=self.feature_list_dinov2)
+                patch_tokens_dinov2 = torch.cat(patch_tokens_dinov2, dim=-1)  # (1, 28*28, 1024x4)
+                patch_tokens_dinov2 = patch_tokens_dinov2.view(1, *self.ori_feat_size_dino, -1).permute(0, 3, 1, 2)
+                patch_tokens_dinov2 = F.interpolate(patch_tokens_dinov2, size=(self.feat_size, self.feat_size), mode=self.inter_mode, align_corners=self.align_corners)
+                patch_tokens_dinov2 = patch_tokens_dinov2.permute(0, 2, 3, 1).view(-1, self.vision_width_dinov2 * len(self.feature_list_dinov2))
+                patch_tokens_dinov2 = F.normalize(patch_tokens_dinov2, p=2, dim=-1) # (1x64x64, 1024x4)
+
         '''adding for kmeans seg '''
         if self.feat_size != self.ori_feat_size:
             proj_patch_tokens = proj_patch_tokens.view(1, self.ori_feat_size, self.ori_feat_size, -1).permute(0, 3, 1, 2)
@@ -279,9 +282,13 @@ class MyModel(nn.Module):
             for patch_feature, mem_patch_feature in zip(patch_tokens_clip.chunk(len_feature_list, dim=-1), mem_patch_feature_clip_coreset.chunk(len_feature_list, dim=-1)):
                 patch_feature = F.normalize(patch_feature, dim=-1)
                 mem_patch_feature = F.normalize(mem_patch_feature, dim=-1)
-                normal_map_patchcore = (patch_feature @ mem_patch_feature.T)
-                normal_map_patchcore = (normal_map_patchcore.max(1)[0]).cpu().numpy() # 1: normal 0: abnormal 
-                anomaly_map_patchcore = 1 - normal_map_patchcore 
+                max_sim = None
+                for mem_chunk in mem_patch_feature.split(8192, dim=0):
+                    sim_chunk = patch_feature @ mem_chunk.T
+                    chunk_max = sim_chunk.max(1)[0]
+                    max_sim = chunk_max if max_sim is None else torch.max(max_sim, chunk_max)
+                normal_map_patchcore = max_sim.cpu().numpy() # 1: normal 0: abnormal
+                anomaly_map_patchcore = 1 - normal_map_patchcore
 
                 anomaly_maps_patchcore.append(anomaly_map_patchcore)
 
@@ -290,8 +297,12 @@ class MyModel(nn.Module):
             for patch_feature, mem_patch_feature in zip(patch_tokens_dinov2.chunk(len_feature_list, dim=-1), mem_patch_feature_dinov2_coreset.chunk(len_feature_list, dim=-1)):
                 patch_feature = F.normalize(patch_feature, dim=-1)
                 mem_patch_feature = F.normalize(mem_patch_feature, dim=-1)
-                normal_map_patchcore = (patch_feature @ mem_patch_feature.T)
-                normal_map_patchcore = (normal_map_patchcore.max(1)[0]).cpu().numpy() # 1: normal 0: abnormal   
+                max_sim = None
+                for mem_chunk in mem_patch_feature.split(8192, dim=0):
+                    sim_chunk = patch_feature @ mem_chunk.T
+                    chunk_max = sim_chunk.max(1)[0]
+                    max_sim = chunk_max if max_sim is None else torch.max(max_sim, chunk_max)
+                normal_map_patchcore = max_sim.cpu().numpy() # 1: normal 0: abnormal
                 anomaly_map_patchcore = 1 - normal_map_patchcore 
 
                 anomaly_maps_patchcore.append(anomaly_map_patchcore)
@@ -758,13 +769,16 @@ class MyModel(nn.Module):
             patch_tokens_clip = patch_tokens_clip.permute(0, 2, 3, 1).view(-1, self.vision_width * len(self.feature_list))
             patch_tokens_clip = F.normalize(patch_tokens_clip, p=2, dim=-1)  # (bsx64x64, 1024x4)
 
-        with torch.no_grad():
-            patch_tokens_dinov2 = self.model_dinov2.get_intermediate_layers(few_shot_samples, n=self.feature_list_dinov2)  # 4 x [bs, H*W, 1024]
-            patch_tokens_dinov2 = torch.cat(patch_tokens_dinov2, dim=-1)  # (bs, H*W, 1024x4)
-            patch_tokens_dinov2 = patch_tokens_dinov2.view(self.k_shot, *self.ori_feat_size_dino, -1).permute(0, 3, 1, 2)
-            patch_tokens_dinov2 = F.interpolate(patch_tokens_dinov2, size=(self.feat_size, self.feat_size), mode=self.inter_mode, align_corners=self.align_corners)
-            patch_tokens_dinov2 = patch_tokens_dinov2.permute(0, 2, 3, 1).view(-1, self.vision_width_dinov2 * len(self.feature_list_dinov2))
-            patch_tokens_dinov2 = F.normalize(patch_tokens_dinov2, p=2, dim=-1)  # (bsx64x64, 1024x4)
+        # DINO encoding only needed for DINO patchcore categories
+        patch_tokens_dinov2 = None
+        if class_name in ['splicing_connectors', 'breakfast_box', 'juice_bottle']:
+            with torch.no_grad():
+                patch_tokens_dinov2 = self.model_dinov2.get_intermediate_layers(few_shot_samples, n=self.feature_list_dinov2)  # 4 x [bs, H*W, 1024]
+                patch_tokens_dinov2 = torch.cat(patch_tokens_dinov2, dim=-1)  # (bs, H*W, 1024x4)
+                patch_tokens_dinov2 = patch_tokens_dinov2.view(self.k_shot, *self.ori_feat_size_dino, -1).permute(0, 3, 1, 2)
+                patch_tokens_dinov2 = F.interpolate(patch_tokens_dinov2, size=(self.feat_size, self.feat_size), mode=self.inter_mode, align_corners=self.align_corners)
+                patch_tokens_dinov2 = patch_tokens_dinov2.permute(0, 2, 3, 1).view(-1, self.vision_width_dinov2 * len(self.feature_list_dinov2))
+                patch_tokens_dinov2 = F.normalize(patch_tokens_dinov2, p=2, dim=-1)  # (bsx64x64, 1024x4)
 
         cluster_features = None
         for layer in self.cluster_feature_id:
@@ -843,7 +857,9 @@ class MyModel(nn.Module):
     def process(self, class_name: str, few_shot_samples: list[torch.Tensor], few_shot_samples_clip: list[torch.Tensor], few_shot_paths: list[str]):
         few_shot_samples = self.transform(few_shot_samples).to(self.device)
         few_shot_samples_clip = self.transform(few_shot_samples_clip).to(self.device)
-        scores, self.mem_patch_feature_clip_coreset, self.mem_patch_feature_dinov2_coreset = self.process_k_shot(class_name, few_shot_samples, few_shot_samples_clip, few_shot_paths)
+        scores, mem_patch_feature_clip_coreset, mem_patch_feature_dinov2_coreset = self.process_k_shot(class_name, few_shot_samples, few_shot_samples_clip, few_shot_paths)
+        self.mem_patch_feature_clip_coreset = mem_patch_feature_clip_coreset
+        self.mem_patch_feature_dinov2_coreset = mem_patch_feature_dinov2_coreset
 
     def setup(self, data: dict) -> None:
         """Setup the few-shot samples for the model.

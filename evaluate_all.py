@@ -21,11 +21,11 @@ FEW_SHOT_SAMPLES = [0, 1, 2, 3]
 # Per-category image sizes (H, W) preserving original aspect ratios.
 # CLIP always resized to 448x448; only DINOv3 (patch=16) needs divisibility by 16.
 CATEGORY_IMAGE_SIZES = {
-    "breakfast_box":        (448, 560),   # orig 1600x1280 (5:4)   ratio=1.250 exact
-    "juice_bottle":         (672, 336),   # orig 800x1600  (1:2)   ratio=0.500 exact
-    "pushpins":             (320, 544),   # orig 1700x1000 (17:10) ratio=1.700 exact
-    "screw_bag":            (352, 512),   # orig 1600x1100 (16:11) ratio=1.455 exact
-    "splicing_connectors":  (336, 672),   # orig 1700x850  (2:1)   ratio=2.000 exact
+    "breakfast_box":        (576, 720),   # orig 1600x1280 (5:4)   ratio=1.250 exact
+    "juice_bottle":         (896, 448),   # orig 800x1600  (1:2)   ratio=0.500 exact
+    "pushpins":             (480, 816),   # orig 1700x1000 (17:10) ratio=1.700 exact
+    "screw_bag":            (528, 768),   # orig 1600x1100 (16:11) ratio=1.455 exact
+    "splicing_connectors":  (448, 896),   # orig 1700x850  (2:1)   ratio=2.000 exact
 }
 
 

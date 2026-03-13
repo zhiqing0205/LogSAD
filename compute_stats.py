@@ -26,11 +26,11 @@ CATEGORIES = ["breakfast_box", "juice_bottle", "pushpins", "screw_bag", "splicin
 
 # Per-category image sizes (H, W) preserving original aspect ratios.
 CATEGORY_IMAGE_SIZES = {
-    "breakfast_box":        (448, 560),
-    "juice_bottle":         (672, 336),
-    "pushpins":             (320, 544),
-    "screw_bag":            (352, 512),
-    "splicing_connectors":  (336, 672),
+    "breakfast_box":        (576, 720),
+    "juice_bottle":         (896, 448),
+    "pushpins":             (480, 816),
+    "screw_bag":            (528, 768),
+    "splicing_connectors":  (448, 896),
 }
 
 
